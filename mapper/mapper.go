@@ -40,8 +40,8 @@ func NewMapper(fileName string, s slashie.Slashie) *MapReduce {
 	mr := &MapReduce{
 		BasicActor: actor.NewBasicActor(ActorType, actor.Id(fileName)),
 		logger:     logger.NewStdOutLogger(),
-		splitRe:    regexp.MustCompile("\\s+"),
-		replRe:     regexp.MustCompile("\\W+"),
+		splitRe:    regexp.MustCompile(`\s+`),
+		replRe:     regexp.MustCompile(`\W+`),
 		file:       fileName,
 		pairs:      []*Pair{},
 		wordCounts: map[string]int{},

@@ -6,7 +6,6 @@ import (
 	"github.com/strategicpause/slashie/actor"
 	"github.com/strategicpause/slashie/logger"
 	"github.com/strategicpause/slashie/transition"
-	"sync"
 	"weedupe/mapper"
 )
 
@@ -19,7 +18,6 @@ const (
 	ReadResultsStatus = "ReadResults"
 	CombineStatus     = "Combine"
 	PrintStatus       = "Print"
-	DoneStatus        = "Done"
 )
 
 type Opt func(d *Director)
@@ -43,18 +41,15 @@ type Director struct {
 	wordCountByFile map[string]map[string]int
 	wordCounts      map[string]int
 	logger          logger.Logger
-	wg              sync.WaitGroup
 }
 
-func NewDirector(opts ...Opt) *Director {
+func NewDirector(opts ...Opt) (*Director, error) {
 	d := &Director{
 		BasicActor:      actor.NewBasicActor(ActorType, ActorId),
 		wordCountByFile: map[string]map[string]int{},
 		wordCounts:      map[string]int{},
 		logger:          logger.NewStdOutLogger(),
-		wg:              sync.WaitGroup{},
 	}
-	d.wg.Add(1)
 
 	for _, opt := range opts {
 		opt(d)
@@ -64,30 +59,26 @@ func NewDirector(opts ...Opt) *Director {
 		d.slashie = slashie.NewSlashie()
 	}
 
-	d.slashie.AddActor(d, InitStatus, DoneStatus)
+	if err := d.initActor(); err != nil {
+		return nil, err
+	}
 
-	return d
+	return d, nil
 }
 
-func (d *Director) Start() error {
+func (d *Director) initActor() error {
+	d.slashie.AddActor(d, InitStatus, PrintStatus)
+
 	err := d.slashie.AddTransitionActions(d, []*transition.TransitionAction{
 		{SrcStatus: InitStatus, DestStatus: MapReduceStatus, Action: d.MapReduce},
 		{SrcStatus: ReadResultsStatus, DestStatus: CombineStatus, Action: d.Combine},
 		{SrcStatus: CombineStatus, DestStatus: PrintStatus, Action: d.Print},
-		{SrcStatus: PrintStatus, DestStatus: DoneStatus, Action: d.Done},
 	})
 	if err != nil {
 		return err
 	}
 
-	err = d.slashie.UpdateStatus(d, MapReduceStatus)
-	if err != nil {
-		return err
-	}
-
-	d.wg.Wait()
-
-	return nil
+	return d.slashie.UpdateStatus(d, MapReduceStatus)
 }
 
 func (d *Director) MapReduce() error {
@@ -136,10 +127,5 @@ func (d *Director) Print() error {
 		fmt.Printf("%s: %d\n", word, count)
 	}
 
-	return d.slashie.UpdateStatus(d, DoneStatus)
-}
-
-func (d *Director) Done() error {
-	d.wg.Done()
 	return nil
 }
