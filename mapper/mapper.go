@@ -19,6 +19,10 @@ const (
 	ReduceStatus = "Reduce"
 )
 
+type WordCounts map[string]int
+
+var WordCountType = WordCounts{}
+
 type Pair struct {
 	A string
 	B int
@@ -26,25 +30,27 @@ type Pair struct {
 
 type MapReduce struct {
 	*actor.BasicActor
+	parentKey  actor.Key
 	logger     logger.Logger
 	file       string
 	content    string
 	splitRe    *regexp.Regexp
 	replRe     *regexp.Regexp
 	pairs      []*Pair
-	wordCounts map[string]int
+	wordCounts WordCounts
 	s          slashie.Slashie
 }
 
-func NewMapper(fileName string, s slashie.Slashie) *MapReduce {
+func NewMapper(fileName string, parentKey actor.Key, s slashie.Slashie) *MapReduce {
 	mr := &MapReduce{
 		BasicActor: actor.NewBasicActor(ActorType, actor.Id(fileName)),
+		parentKey:  parentKey,
 		logger:     logger.NewStdOutLogger(),
 		splitRe:    regexp.MustCompile(`\s+`),
 		replRe:     regexp.MustCompile(`\W+`),
 		file:       fileName,
 		pairs:      []*Pair{},
-		wordCounts: map[string]int{},
+		wordCounts: WordCounts{},
 		s:          s,
 	}
 
@@ -55,9 +61,9 @@ func NewMapper(fileName string, s slashie.Slashie) *MapReduce {
 
 func (m *MapReduce) Start() error {
 	err := m.s.AddTransitionActions(m, []*transition.TransitionAction{
-		{SrcStatus: InitStatus, DestStatus: ReadStatus, Action: m.Read},
-		{SrcStatus: ReadStatus, DestStatus: MapStatus, Action: m.Map},
-		{SrcStatus: MapStatus, DestStatus: ReduceStatus, Action: m.Reduce},
+		{SrcStatus: InitStatus, DestStatus: ReadStatus, Action: m.readData},
+		{SrcStatus: ReadStatus, DestStatus: MapStatus, Action: m.mapData},
+		{SrcStatus: MapStatus, DestStatus: ReduceStatus, Action: m.reduceData},
 	})
 	if err != nil {
 		return err
@@ -66,7 +72,7 @@ func (m *MapReduce) Start() error {
 	return m.s.UpdateStatus(m, ReadStatus)
 }
 
-func (m *MapReduce) Read() error {
+func (m *MapReduce) readData() error {
 	content, err := os.ReadFile(m.file)
 	if err != nil {
 		return err
@@ -76,7 +82,7 @@ func (m *MapReduce) Read() error {
 	return m.s.UpdateStatus(m, MapStatus)
 }
 
-func (m *MapReduce) Map() error {
+func (m *MapReduce) mapData() error {
 	words := m.splitRe.Split(m.content, -1)
 	for _, word := range words {
 		word = m.replRe.ReplaceAllString(word, "")
@@ -89,14 +95,10 @@ func (m *MapReduce) Map() error {
 	return m.s.UpdateStatus(m, ReduceStatus)
 }
 
-func (m *MapReduce) Reduce() error {
+func (m *MapReduce) reduceData() error {
 	for _, pair := range m.pairs {
 		m.wordCounts[pair.A] += pair.B
 	}
 
-	return nil
-}
-
-func (m *MapReduce) GetWordCounts() map[string]int {
-	return m.wordCounts
+	return m.s.SendMessage(m.parentKey, m.wordCounts)
 }
